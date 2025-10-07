@@ -16,7 +16,7 @@ def _hash_file(file) -> str:
 
 
 @st.cache_data(show_spinner=False)
-def load_data(file):
+def load_data(file=None):
     """
     Carrega um arquivo CSV e identifica colunas numéricas e categóricas.
     O resultado é armazenado em cache para evitar recarregamentos.
@@ -34,7 +34,9 @@ def load_data(file):
         numeric_cols = data.select_dtypes(include=["number"]).columns.tolist()
         categorical_cols = data.select_dtypes(exclude=["number"]).columns.tolist()
 
-        st.session_state["file_hash"] = file_hash  # Armazena hash para comparação futura
+        st.session_state["file_hash"] = (
+            file_hash  # Armazena hash para comparação futura
+        )
 
         return data, numeric_cols, categorical_cols
 

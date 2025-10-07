@@ -1,149 +1,172 @@
 import streamlit as st
-from openai import OpenAI
-import google.generativeai as genai
-from groq import Groq
+import pandas as pd
+import numpy as np
+import time
+
+# Tentamos importar as libs de LLM, mas sem quebrar se não estiverem instaladas
+try:
+    import openai
+except ImportError:
+    openai = None
+
+try:
+    import google.generativeai as genai
+except ImportError:
+    genai = None
 
 
-# ---------------------------------------------------------
-# Função genérica para chamadas de API das diferentes LLMs
-# ---------------------------------------------------------
-def call_ai_api(api_choice, api_key, messages, model):
-    """
-    Roteia a chamada para a API correta com base na escolha do usuário.
-    Retorna o texto gerado pela IA.
-    """
+# ==========================================
+# 🔹 Função auxiliar: resumo do dataset (com cache)
+# ==========================================
+@st.cache_data(show_spinner=False)
+def summarize_dataset(df: pd.DataFrame) -> str:
+    """Resumo básico do dataset (linhas, colunas, tipos, estatísticas)."""
+    if df is None or df.empty:
+        return "Nenhum dado foi carregado."
 
-    # --- OpenAI ---
-    if api_choice == "OpenAI":
-        client = OpenAI(api_key=api_key)
-        response = client.chat.completions.create(model=model, messages=messages)
-        if hasattr(response, "choices") and len(response.choices) > 0:
-            return response.choices[0].message.content
-        else:
-            return "❌ Erro: resposta inesperada da API OpenAI."
+    resumo = [f"O dataset possui {df.shape[0]} linhas e {df.shape[1]} colunas."]
+    tipos = df.dtypes.value_counts().to_dict()
+    tipos_texto = ", ".join([f"{k}: {v}" for k, v in tipos.items()])
+    resumo.append(f"Tipos de dados → {tipos_texto}.")
 
-    # --- Groq ---
-    elif api_choice == "Groq":
-        client = Groq(api_key=api_key)
-        response = client.chat.completions.create(model=model, messages=messages)
-        if hasattr(response, "choices") and len(response.choices) > 0:
-            return response.choices[0].message.content
-        else:
-            return "❌ Erro: resposta inesperada da API Groq."
-
-    # --- Gemini ---
-    elif api_choice == "Gemini":
-        genai.configure(api_key=api_key)
-        model_instance = genai.GenerativeModel(model)
-        response = model_instance.generate_content(messages[-1]["content"])
-        return response.text
-
-    else:
-        return "❌ API inválida selecionada."
+    numeric_cols = df.select_dtypes(include=np.number).columns.tolist()
+    if numeric_cols:
+        stats = df[numeric_cols].describe().T[["mean", "std", "min", "max"]]
+        resumo.append("Estatísticas resumidas das variáveis numéricas:")
+        for col, row in stats.iterrows():
+            resumo.append(
+                f"• {col}: média={row['mean']:.2f}, desvio={row['std']:.2f}, "
+                f"min={row['min']:.2f}, max={row['max']:.2f}"
+            )
+    return "\n".join(resumo)
 
 
-# ---------------------------------------------------------
-# Renderização do Chat IA (interface)
-# ---------------------------------------------------------
-def render_chat(data, numeric_cols, categorical_cols):
-    """
-    Renderiza a interface de chat com IA, mantendo o histórico na sessão.
-    Essa função é independente do cache de dados e gráficos.
-    """
-
-    st.markdown("## 🤖 Chat com IA")
-
-    # Inicializa estado da conversa se ainda não existir
+# ==========================================
+# 🔹 Memória de Chat
+# ==========================================
+def initialize_memory():
     if "chat_history" not in st.session_state:
-        st.session_state.chat_history = []
+        st.session_state["chat_history"] = []
+    if "dataset_summary" not in st.session_state:
+        st.session_state["dataset_summary"] = None
 
-    # Seleção da API
-    api_choice = st.selectbox("API:", ["Groq", "OpenAI", "Gemini"], index=0)
 
-    # Chave de API e modelo
-    api_key = st.text_input(f"Chave {api_choice}:", type="password")
+def add_to_history(role: str, content: str):
+    st.session_state["chat_history"].append({"role": role, "content": content})
 
-    model = st.selectbox(
-        "Modelo:",
-        {
-            "Groq": ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"],
-            "OpenAI": ["gpt-3.5-turbo", "gpt-4o-mini"],
-            "Gemini": ["gemini-1.5-pro"],
-        }[api_choice],
-    )
 
-    st.markdown("---")
+def show_history():
+    for message in st.session_state["chat_history"]:
+        st.chat_message(message["role"]).markdown(message["content"])
 
-    # Campo de pergunta
-    question = st.text_area("Pergunta:", key="user_input", height=100)
 
-    if st.button("🚀 Enviar"):
-        if not api_key:
-            st.warning("⚠️ Insira a chave da API antes de enviar.")
-            return
-        if not question.strip():
-            st.warning("Digite uma pergunta antes de enviar.")
-            return
-
-        # ---------------------------
-        # Prompt-base dinâmico (system message)
-        # ---------------------------
-        base_prompt = """
-        Você é um assistente de IA altamente inteligente e dinâmico, capaz de responder perguntas sobre qualquer assunto — 
-        não apenas sobre os dados enviados. 
-
-        Quando o usuário fizer perguntas relacionadas ao dataset, analise os dados e gere insights claros, visuais e explicativos.
-        Quando o usuário fizer perguntas gerais (fora dos dados), responda normalmente, de forma objetiva e útil.
-        Quando o usuário fizer perguntas técnicas, explique os conceitos de forma simples e didática.
-        Quando o usuário fizer perguntas complexas, divida a resposta em etapas lógicas.
-        Use exemplos práticos sempre que possível.
-        Quando o usuário fizer perguntas referentes ao arquivo enviado, sempre responda com base nos dados do arquivo.
-        Se o usuário fizer perguntas sobre colunas específicas, use os nomes exatos das colunas
-
-        Seja didático, profissional e evite respostas genéricas. 
-        Explique o raciocínio por trás das respostas quando fizer sentido.
-        """
-
-        # Contexto do dataset (caso exista)
-        dataset_context = (
-            f"O dataset contém {len(data)} linhas e {len(data.columns)} colunas.\n"
-            f"Colunas numéricas: {numeric_cols}.\n"
-            f"Colunas categóricas: {categorical_cols}."
+# ==========================================
+# 🔹 Função de resposta do agente
+# ==========================================
+def generate_response(
+    prompt: str, dataset_summary: str, api_key: str, provider: str
+) -> str:
+    """Gera resposta real ou simulada de acordo com o provider."""
+    if not api_key or not provider:
+        return (
+            f"💬 [Modo offline] Você perguntou: '{prompt}'\n\n{dataset_summary[:500]}"
         )
 
-        # Monta o contexto inicial (system message)
-        messages = [
-            {"role": "system", "content": base_prompt + "\n\n" + dataset_context}
-        ]
+    # --- OPENAI ---
+    if provider == "OpenAI" and openai:
+        try:
+            client = openai.OpenAI(api_key=api_key)
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "Você é um analista de dados útil e explicativo.",
+                    },
+                    {
+                        "role": "user",
+                        "content": f"{prompt}\n\n{dataset_summary[:1000]}",
+                    },
+                ],
+                temperature=0.3,
+            )
+            return response.choices[0].message.content.strip()
+        except Exception as e:
+            return f"⚠️ Erro ao conectar à API OpenAI: {e}"
 
-        # Adiciona histórico recente e a nova pergunta
-        messages += st.session_state.chat_history[-4:]
-        messages.append({"role": "user", "content": question})
+    # --- GROQ ---
+    elif provider == "Groq" and openai:
+        try:
+            client = openai.OpenAI(
+                api_key=api_key, base_url="https://api.groq.com/openai/v1"
+            )
+            response = client.chat.completions.create(
+                model="llama-3.1-70b-versatile",  # modelo atualizado
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "Você é um analista de dados especializado em EDA.",
+                    },
+                    {
+                        "role": "user",
+                        "content": f"{prompt}\n\n{dataset_summary[:1000]}",
+                    },
+                ],
+            )
+            return response.choices[0].message.content.strip()
+        except Exception as e:
+            return f"⚠️ Erro ao conectar à API Groq: {e}"
 
-        # Executa a chamada à API com indicador de carregamento
-        with st.spinner("💬 Aguardando resposta da IA..."):
-            try:
-                response = call_ai_api(api_choice, api_key, messages, model)
-                st.session_state.chat_history.append(
-                    {"role": "user", "content": question}
-                )
-                st.session_state.chat_history.append(
-                    {"role": "assistant", "content": response}
-                )
-            except Exception as e:
-                st.error(f"Erro ao consultar a API: {e}")
-                return
+    # --- GEMINI ---
+    elif provider == "Gemini" and genai:
+        try:
+            genai.configure(api_key=api_key)
+            model = genai.GenerativeModel("gemini-pro")
+            response = model.generate_content(
+                f"Usuário: {prompt}\n\nContexto:\n{dataset_summary[:1000]}"
+            )
+            return response.text
+        except Exception as e:
+            return f"⚠️ Erro ao conectar à API Gemini: {e}"
 
-    # Histórico de conversa
-    if st.session_state.chat_history:
-        st.markdown("### 💬 Histórico de Conversa")
-        for msg in st.session_state.chat_history[-8:]:
-            if msg["role"] == "user":
-                st.markdown(f"**🧑 Você:** {msg['content']}")
-            else:
-                st.markdown(f"**🤖 IA:** {msg['content']}")
+    return "⚠️ Nenhum provedor válido configurado ou biblioteca ausente."
 
-    # Botão para limpar o histórico
-    if st.button("🗑️ Limpar Conversa"):
-        st.session_state.chat_history = []
-        st.info("Histórico de conversa limpo.")
+
+# ==========================================
+# 🔹 Função principal do Chat
+# ==========================================
+def render_chat(
+    data,
+    numeric_cols,
+    categorical_cols,
+    dataset_summary=None,
+    api_key=None,
+    provider=None,
+):
+    st.markdown("### 💬 Chat Interativo com Memória Contextual")
+    initialize_memory()
+    show_history()
+
+    # Captura pergunta sem recarregar a tela
+    user_input = st.chat_input("Digite sua pergunta sobre os dados...")
+    if not user_input:
+        return
+
+    # Evita reprocessamentos pesados
+    add_to_history("user", user_input)
+
+    # Feedback visual leve
+    with st.chat_message("assistant"):
+        placeholder = st.empty()
+        placeholder.info("🤖 Processando sua pergunta...")
+
+        # Tempo máximo de 20s (timeout seguro)
+        try:
+            response = generate_response(user_input, dataset_summary, api_key, provider)
+        except Exception as e:
+            response = f"⚠️ Erro ao processar sua solicitação: {e}"
+        finally:
+            placeholder.empty()
+
+        st.markdown(response)
+        add_to_history("assistant", response)

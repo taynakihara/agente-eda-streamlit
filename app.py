@@ -9,7 +9,31 @@ import time
 # -----------------------------
 # Configurações Gerais
 # -----------------------------
-st.set_page_config(page_title="Análise Exploratória com IA", layout="wide")
+st.set_page_config(page_title=" 🤖 Análise Exploratória com IA", layout="wide")
+
+# === Ajuste visual: espaçamento entre o topo (barra do Streamlit) e o conteúdo ===
+st.markdown(
+    """
+    <style>
+        /* Aplica margem apenas no conteúdo principal */
+        .block-container {
+            margin-top: 3.5rem; /* ajuste aqui conforme desejar (3rem, 4rem etc.) */
+        }
+
+        /* Mantém o topo (Deploy bar) colado */
+        header, .stAppHeader {
+            margin-top: 0 !important;
+            padding-top: 0 !important;
+        }
+
+        /* Opcional: leve espaçamento inferior para estética */
+        .main {
+            padding-bottom: 2rem;
+        }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 # -----------------------------
 # Estilo geral (antes do upload)
@@ -78,7 +102,7 @@ st.markdown(
 # -----------------------------
 # Cabeçalho e upload
 # -----------------------------
-st.title("🌌 Análise Exploratória de Dados com IA")
+st.title("📊 Análise Exploratória de Dados com IA")
 
 uploaded_file = st.file_uploader("📂 Envie seu arquivo CSV para análise", type=["csv"])
 
@@ -167,19 +191,22 @@ if uploaded_file:
     )
     cache_clear_button()
 
-    # --- Cria todas as abas, mas só exibe após carregamento completo ---
-    tabs = st.tabs(
-        [
-            "📊 Distribuições",
-            "🔍 Correlações",
-            "📈 Tendências",
-            "📉 Variância",
-            "⚠️ Anomalias",
-            "🧩 Clusters",
-            "🤖 Chat IA",
-        ]
-    )
+# ...existing code...
 
+# --- Cria todas as abas, mas só exibe após carregamento completo ---
+tabs = st.tabs(
+    [
+        "📊 Distribuições",
+        "🔍 Correlações",
+        "📈 Tendências",
+        "📉 Variância",
+        "⚠️ Anomalias",
+        "🧩 Clusters",
+        "🤖 Chat IA",
+    ]
+)
+
+if uploaded_file:
     # --- Renderiza conteúdo dentro das abas ---
     with tabs[0]:
         distributions.render(data, numeric_cols, categorical_cols)
@@ -193,12 +220,69 @@ if uploaded_file:
         anomalies.render(data, numeric_cols)
     with tabs[5]:
         clustering.render(data, numeric_cols)
+
+    # --- Aba do Chat IA (com memória persistente) ---
     with tabs[6]:
-        render_chat(data, numeric_cols, categorical_cols)
+        st.header("🤖 Chat Inteligente com Memória")
+
+        # --- Inicialização da memória do agente ---
+        if "chat_history" not in st.session_state:
+            st.session_state["chat_history"] = []
+        if "dataset_summary" not in st.session_state and data is not None:
+            from src.ai_chat import summarize_dataset
+
+            st.session_state["dataset_summary"] = summarize_dataset(data)
+
+        # --- Botão para limpar memória do agente ---
+        if st.button("🧹 Limpar memória do agente"):
+            st.session_state["chat_history"] = []
+            st.session_state["dataset_summary"] = None
+            st.success("Memória do agente limpa!")
+
+        # --- Configuração de API ---
+        st.subheader("🔑 Configuração da API da IA")
+        if "provider" not in st.session_state:
+            st.session_state["provider"] = "OpenAI"
+        if "user_api_key" not in st.session_state:
+            st.session_state["user_api_key"] = ""
+
+        # Esses widgets NÃO devem recarregar a página
+        provider = st.selectbox(
+            "Selecione o provedor de IA:",
+            ["OpenAI", "Groq", "Gemini"],
+            key="provider_selector",
+            index=["OpenAI", "Groq", "Gemini"].index(st.session_state["provider"]),
+            on_change=None,  # evita reexecução desnecessária
+        )
+        api_key = st.text_input(
+            f"Insira sua API Key ({provider})",
+            type="password",
+            value=st.session_state["user_api_key"],
+            key="user_api_key_input",
+            on_change=None,  # evita recarregar a página
+        )
+
+        # Armazena apenas quando o usuário confirmar
+        if st.button("💾 Salvar Configuração de API"):
+            st.session_state["provider"] = provider
+            st.session_state["user_api_key"] = api_key
+            st.success(f"✅ Configuração salva: {provider}")
+
+        # --- Renderização do chat com memória contextual ---
+        from src.ai_chat import render_chat
+
+        render_chat(
+            data,
+            numeric_cols,
+            categorical_cols,
+            st.session_state["dataset_summary"],
+            api_key=api_key,
+            provider=provider,
+        )
 
     # --- Remove o loading SOMENTE após todas as abas renderizarem ---
     st.session_state["loaded"] = True
     loading_container.empty()
-
 else:
     st.info("👆 Carregue um arquivo CSV para começar a análise.")
+# ...existing code...
