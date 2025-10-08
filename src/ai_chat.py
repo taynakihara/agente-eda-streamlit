@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import time
 from utils.memoria_db import salvar_memoria, carregar_memoria
 
 # Tentamos importar as libs de LLM, mas sem quebrar se não estiverem instaladas
@@ -46,23 +45,28 @@ def summarize_dataset(df: pd.DataFrame) -> str:
 # 🔹 Memória de Chat
 # ==========================================
 def initialize_memory():
-    """Inicializa a memória local e carrega as últimas conversas persistidas."""
+    """Inicializa a memória local e carrega as últimas conversas persistidas sem duplicar."""
     if "chat_history" not in st.session_state:
         st.session_state["chat_history"] = []
     if "dataset_summary" not in st.session_state:
         st.session_state["dataset_summary"] = None
 
-    # Carregar histórico persistente
+    if st.session_state.get("memoria_carregada"):
+        return
+
     try:
         memoria_salva = carregar_memoria(limit=5)
         if memoria_salva:
-            for item in memoria_salva[::-1]:  # ordem cronológica
+            st.session_state["chat_history"].clear()
+            for item in memoria_salva[::-1]:
                 st.session_state["chat_history"].append(
                     {
                         "role": "assistant",
                         "content": f"🕒 {item['timestamp']}\n**{item['pergunta']}**\n\n{item['resposta']}",
                     }
                 )
+        st.session_state["memoria_carregada"] = True
+
     except Exception as e:
         st.warning(f"⚠️ Não foi possível carregar memória persistente: {e}")
 
@@ -72,11 +76,13 @@ def add_to_history(role: str, content: str):
 
 
 def show_history():
-    """Exibe o histórico do chat."""
     for message in st.session_state["chat_history"]:
         st.chat_message(message["role"]).markdown(message["content"])
 
 
+# ==========================================
+# 🔹 Função de resposta do agente
+# ==========================================
 # ==========================================
 # 🔹 Função de resposta do agente
 # ==========================================
@@ -113,12 +119,15 @@ def generate_response(
 
     # --- GROQ ---
     elif provider == "Groq" and openai:
+        if not api_key.startswith("gsk_"):
+            return "⚠️ Chave da API Groq inválida. Ela deve começar com 'gsk_'."
+
         try:
             client = openai.OpenAI(
                 api_key=api_key, base_url="https://api.groq.com/openai/v1"
             )
             response = client.chat.completions.create(
-                model="llama-3.1-70b-versatile",
+                model="llama-3.2-8b-text-preview",
                 messages=[
                     {
                         "role": "system",
@@ -164,7 +173,11 @@ def render_chat(
     initialize_memory()
     show_history()
 
-    # Entrada do usuário
+    # Impede execução automática se o provider ou API Key não estiverem configurados
+    if not provider or not api_key:
+        st.info("⚠️ Por favor, configure o provedor e a API Key para usar o chat.")
+        return
+
     user_input = st.chat_input("Digite sua pergunta sobre os dados...")
     if not user_input:
         return
@@ -185,7 +198,6 @@ def render_chat(
         st.markdown(response)
         add_to_history("assistant", response)
 
-        # 💾 Salvar pergunta e resposta na memória persistente Supabase
         try:
             salvar_memoria(user_input, response, tipo_analise="chat")
         except Exception as e:
