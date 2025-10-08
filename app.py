@@ -1,4 +1,5 @@
 import streamlit as st
+from src.ai_chat import render_chat, summarize_dataset
 from src.data_loader import load_data
 from src.analysis import (
     distributions,
@@ -8,82 +9,104 @@ from src.analysis import (
     clustering,
     variance,
 )
-from src.ai_chat import render_chat, summarize_dataset
 from utils.cache_utils import cache_clear_button
 from dotenv import load_dotenv
 import pandas as pd
 
-# ====================================================
-# 🔧 Configurações Iniciais
-# ====================================================
+# ===============================
+# 🔧 Configurações iniciais
+# ===============================
 load_dotenv()
-st.set_page_config(page_title="🤖 Análise Exploratória com IA", layout="wide")
+st.set_page_config(page_title="🤖 Análise com IA", layout="wide")
 
-# ====================================================
-# 💅 Estilos Globais
-# ====================================================
+# ===============================
+# 🎨 Estilos globais (layout centralizado e menor)
+# ===============================
 st.markdown(
     """
     <style>
-        .block-container { margin-top: 3.5rem; }
-        header, .stAppHeader { margin-top: 0 !important; padding-top: 0 !important; }
-        .main { padding-bottom: 2rem; }
+        /* Fundo em degradê */
         body, .stApp {
             background: linear-gradient(180deg, #001F3F, #003366, #004080, #0059b3);
             color: white;
         }
-        .block-container { max-width: 900px; margin: 0 auto; padding-top: 2rem; }
-        section.main > div { display: flex; flex-direction: column; align-items: center; justify-content: center; }
-        .stFileUploader { width: 70%; max-width: 600px; margin: 0 auto; }
-        .stAlert { max-width: 600px; margin: 1rem auto; border-radius: 10px; font-size: 0.9rem; }
-        h1 { text-align: center !important; font-size: 2.4rem !important; }
-        h2, h3 { text-align: center; color: #A7C7E7; }
+
+        /* Container principal centralizado */
+        .block-container {
+            max-width: 1300px;  /* deixa mais estreito */
+            margin: 0 auto;
+            padding-top: 2rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        /* Títulos centralizados */
+        h1, h2, h3 {
+            text-align: center !important;
+            color: #A7C7E7 !important;
+        }
+
+        /* Caixa de upload mais compacta */
+        .stFileUploader {
+            width: 70% !important;
+            max-width: 550px !important;
+            margin: 1rem auto !important;
+        }
+
+        /* Caixa de informação centralizada */
+        .stAlert {
+            width: 70% !important;
+            max-width: 550px !important;
+            margin: 0 auto;
+            text-align: center;
+            border-radius: 10px;
+        }
+
+        /* Ajuste para barra superior */
+        header, .stAppHeader {
+            margin-top: 0 !important;
+            padding-top: 0 !important;
+        }
     </style>
-    """,
+""",
     unsafe_allow_html=True,
 )
 
-# ====================================================
-# 📤 Cabeçalho e Upload
-# ====================================================
-st.title("📊 Análise Exploratória de Dados com IA")
-uploaded_file = st.file_uploader("📂 Envie seu arquivo CSV para análise", type=["csv"])
 
-# ====================================================
-# 🎨 Ajuste visual dinâmico (após upload)
-# ====================================================
-if uploaded_file:
-    st.markdown(
-        """
-        <style>
-            .block-container { max-width: 95% !important; padding-left: 3%; padding-right: 3%; }
-            .stPlotlyChart, .stPyplot { width: 100% !important; max-width: 100% !important; }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
+# ===============================
+# 📤 Upload do CSV
+# ===============================
+st.title("📊 Análise de Dados com IA")
+uploaded_file = st.file_uploader("📂 Envie seu arquivo CSV", type=["csv"])
 
-# ====================================================
-# ⚙️ Lógica Principal
-# ====================================================
 if uploaded_file:
-    # Exibe loading inicial
+    # ====================================================
+    # 🌀 LOADING VISUAL EM TELA CHEIA (trava ações do usuário)
+    # ====================================================
     loading_container = st.empty()
     loading_container.markdown(
         """
         <div id="loading-overlay">
             <div class="loading-content">
                 <div class="spinner"></div>
-                <p>Carregando gráficos e análises... aguarde ⏳</p>
+                <p>Carregando dados e análises... aguarde ⏳</p>
             </div>
         </div>
         <style>
             #loading-overlay {
-                position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-                background-color: rgba(0, 0, 30, 0.97);
-                display: flex; justify-content: center; align-items: center;
-                z-index: 9999; flex-direction: column; color: #A7C7E7;
-                font-size: 1.2rem; text-align: center;
+                position: fixed;
+                top: 0; left: 0;
+                width: 100%; height: 100%;
+                background-color: rgba(0, 0, 30, 0.95);
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                z-index: 9999;
+                flex-direction: column;
+                color: #A7C7E7;
+                font-size: 1.2rem;
+                text-align: center;
             }
             .spinner {
                 border: 6px solid rgba(255, 255, 255, 0.2);
@@ -93,21 +116,47 @@ if uploaded_file:
                 animation: spin 1.2s linear infinite;
                 margin-bottom: 20px;
             }
-            @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+            @keyframes spin {
+                0% { transform: rotate(0deg); }
+                100% { transform: rotate(360deg); }
+            }
         </style>
         """,
         unsafe_allow_html=True,
     )
 
-    # Carrega dados
+    # Agora processa os dados normalmente
     data, numeric_cols, categorical_cols = load_data(uploaded_file)
+
     st.success(
         f"✅ Arquivo carregado: {data.shape[0]} linhas, {data.shape[1]} colunas."
     )
-    cache_clear_button()
+
+    def cache_clear_button():
+        """Botão para limpar cache, sessão e memória do app completamente."""
+        if st.button("🧹 Limpar Cache", key="clear_cache_button"):
+            try:
+                # 🔹 Limpa todos os caches do Streamlit
+                st.cache_data.clear()
+                st.cache_resource.clear()
+
+                # 🔹 Limpa variáveis da sessão (sem quebrar o app)
+                for key in list(st.session_state.keys()):
+                    del st.session_state[key]
+
+                # 🔹 Mostra mensagem de sucesso
+                st.success(
+                    "✅ Cache e sessão limpos com sucesso! Recarregue o arquivo CSV."
+                )
+
+                # 🔹 Força recarregamento da página
+                st.rerun()
+
+            except Exception as e:
+                st.error(f"⚠️ Erro ao limpar cache: {e}")
 
     # ====================================================
-    # 🧩 Criação das Abas
+    # Exibição das abas principais
     # ====================================================
     tabs = st.tabs(
         [
@@ -121,9 +170,6 @@ if uploaded_file:
         ]
     )
 
-    # ====================================================
-    # 📈 Renderização das Abas
-    # ====================================================
     with tabs[0]:
         distributions.render(data, numeric_cols, categorical_cols)
     with tabs[1]:
@@ -138,85 +184,66 @@ if uploaded_file:
         clustering.render(data, numeric_cols)
 
     # ====================================================
-    # 🤖 Aba do Chat IA (com memória persistente)
+    # 💬 Aba do Chat IA (com configuração e memória)
     # ====================================================
     with tabs[6]:
-        st.header("🤖 Chat Inteligente com Memória Persistente")
+        st.header("🧠 Chat Inteligente com Memória Persistente")
 
-        # Inicialização da memória
-        if "chat_history" not in st.session_state:
-            st.session_state["chat_history"] = []
-
-        # Gera resumo do dataset (se necessário)
-        if "dataset_summary" not in st.session_state:
-            st.session_state["dataset_summary"] = summarize_dataset(data)
-
-        dataset_summary = st.session_state["dataset_summary"]
-
-        # Botão para limpar memória
-        if st.button("🧹 Limpar memória do agente"):
-            st.session_state["chat_history"] = []
-            st.session_state["dataset_summary"] = None
-            st.success("✅ Memória limpa com sucesso!")
-
-        # ====================================================
-        # 🔑 Configuração da API
-        # ====================================================
+        # ---- Seção de configuração da IA ----
         st.subheader("🔑 Configuração da API da IA")
+
         if "provider" not in st.session_state:
-            st.session_state["provider"] = "OpenAI"
+            st.session_state["provider"] = None
         if "user_api_key" not in st.session_state:
             st.session_state["user_api_key"] = ""
-        if "groq_model" not in st.session_state:
-            st.session_state["groq_model"] = "llama-3.2-8b-text-preview"
 
-        provider = st.selectbox(
-            "Selecione o provedor de IA:",
-            ["OpenAI", "Groq", "Gemini"],
-            index=["OpenAI", "Groq", "Gemini"].index(st.session_state["provider"]),
-            key="provider_selector",
-        )
+        col1, col2 = st.columns([1.5, 3])
 
-        api_key = st.text_input(
-            f"Insira sua API Key ({provider})",
-            type="password",
-            value=st.session_state["user_api_key"],
-            key="user_api_key_input",
-        )
-
-        # Exibe opção de modelo apenas se for Groq
-        if provider == "Groq":
-            model_name = st.selectbox(
-                "Selecione o modelo Groq:",
-                ["llama-3.2-8b-text-preview", "llama-3.2-70b-text-preview"],
-                index=["llama-3.2-8b-text-preview", "llama-3.2-70b-text-preview"].index(
-                    st.session_state["groq_model"]
+        with col1:
+            provider = st.selectbox(
+                "Selecione o provedor de IA:",
+                ["OpenAI", "Groq", "Gemini"],
+                index=(
+                    0
+                    if not st.session_state["provider"]
+                    else ["OpenAI", "Groq", "Gemini"].index(
+                        st.session_state["provider"]
+                    )
                 ),
+                key="provider_selector",
             )
-            st.session_state["groq_model"] = model_name
-        else:
-            model_name = None
 
-        # Botão para salvar configuração
+        with col2:
+            api_key = st.text_input(
+                f"Insira sua API Key ({provider})",
+                type="password",
+                value=st.session_state.get("user_api_key", ""),
+                key="api_key_input",
+            )
+
+        # ====================================================
+        # ✅ SALVAR API KEY — sem redirecionar, sem recarregar
+        # ====================================================
         if st.button("💾 Salvar Configuração de API"):
             st.session_state["provider"] = provider
             st.session_state["user_api_key"] = api_key
-            if provider == "Groq":
-                st.session_state["groq_model"] = model_name
-            st.success(f"✅ Configuração salva: {provider}")
+            st.success("✅ Configuração salva com sucesso!")
 
-        # Renderiza o chat
+        st.divider()
+
+        # ---- Chat em si ----
         render_chat(
             data=data,
             numeric_cols=numeric_cols,
             categorical_cols=categorical_cols,
-            dataset_summary=dataset_summary,
+            dataset_summary=st.session_state.get("dataset_summary"),
             api_key=st.session_state.get("user_api_key"),
             provider=st.session_state.get("provider"),
         )
 
-    # Remove overlay
-    st.session_state["loaded"] = True
+    # ====================================================
+    # Agora sim remove overlay — tudo foi carregado
+    # ====================================================
     loading_container.empty()
 
 else:
