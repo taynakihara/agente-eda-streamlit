@@ -163,7 +163,6 @@ def render_chat(
     provider=None,
 ):
     """Chat IA com spinner leve e seguro (sem overlay bloqueante)."""
-    st.markdown("### 💬 Chat Interativo com Memória Persistente")
     initialize_memory()
 
     if not provider or not api_key:

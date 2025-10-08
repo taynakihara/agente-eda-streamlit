@@ -19,6 +19,8 @@ def cache_clear_button():
 
     with col2:
         if "file_hash" in st.session_state:
-            st.caption("✅ Dados carregados do cache — gráficos prontos sem recarregar.")
+            st.caption(
+                "✅ Dados carregados do cache — gráficos prontos sem recarregar."
+            )
         else:
             st.caption("⚙️ Nenhum cache ativo no momento.")

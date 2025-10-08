@@ -13,6 +13,34 @@ from utils.cache_utils import cache_clear_button
 from dotenv import load_dotenv
 import pandas as pd
 
+# NO TOPO (Pode ser logo abaixo do seu bloco de importações)
+
+
+# Funções de Callback para persistência do estado
+def update_tab_index():
+    """Atualiza o índice da aba ativa usando a chave do widget (tab_selector)"""
+    # A chave "tab_selector" retorna o LABEL da aba, não o índice.
+    active_label = st.session_state["tab_selector"]
+    tab_labels = [
+        "📊 Distribuições",
+        "🔍 Correlações",
+        "📈 Tendências",
+        "📉 Variância",
+        "⚠️ Anomalias",
+        "🧩 Clusters",
+        "🤖 Chat IA",
+    ]
+    st.session_state["active_tab_index"] = tab_labels.index(active_label)
+
+
+# ... (O restante do código do app.py) ...
+
+# ====================================================
+# Define o estado inicial da aba
+# ====================================================
+if "active_tab_index" not in st.session_state:
+    st.session_state["active_tab_index"] = 0  # Inicia na Distribuições
+
 # ===============================
 # 🔧 Configurações iniciais
 # ===============================
@@ -82,123 +110,114 @@ uploaded_file = st.file_uploader("📂 Envie seu arquivo CSV", type=["csv"])
 
 if uploaded_file:
     # ====================================================
-    # 🌀 LOADING VISUAL EM TELA CHEIA (trava ações do usuário)
+    # Inicializa o container de loading ANTES da lógica condicional
+    # para garantir que esteja no escopo.
     # ====================================================
     loading_container = st.empty()
-    loading_container.markdown(
-        """
-        <div id="loading-overlay">
-            <div class="loading-content">
-                <div class="spinner"></div>
-                <p>Carregando dados e análises... aguarde ⏳</p>
-            </div>
-        </div>
-        <style>
-            #loading-overlay {
-                position: fixed;
-                top: 0; left: 0;
-                width: 100%; height: 100%;
-                background-color: rgba(0, 0, 30, 0.95);
-                display: flex;
-                justify-content: center;
-                align-items: center;
-                z-index: 9999;
-                flex-direction: column;
-                color: #A7C7E7;
-                font-size: 1.2rem;
-                text-align: center;
+
+    # ====================================================
+    # 🌀 LOADING VISUAL CONDICIONAL E BLOQUEANTE
+    # ====================================================
+    if not st.session_state.get("file_hash") or st.session_state.get("is_loading"):
+        st.session_state["is_loading"] = True
+
+        # Renderiza o overlay de loading
+        loading_container.markdown(
+            """
+            <style>
+            /* CSS que bloqueia a tela e exibe o spinner */
+            .stApp { pointer-events: none; }
+            .loading-overlay {
+                position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+                background-color: rgba(0, 0, 0, 0.85); display: flex;
+                flex-direction: column; justify-content: center; align-items: center;
+                z-index: 1000; color: white;
             }
             .spinner {
-                border: 6px solid rgba(255, 255, 255, 0.2);
-                border-top: 6px solid #66B2FF;
-                border-radius: 50%;
-                width: 70px; height: 70px;
-                animation: spin 1.2s linear infinite;
-                margin-bottom: 20px;
+                border: 10px solid #f3f3f3; border-top: 10px solid #3498db;
+                border-radius: 50%; width: 80px; height: 80px;
+                animation: spin 2s linear infinite;
             }
-            @keyframes spin {
-                0% { transform: rotate(0deg); }
-                100% { transform: rotate(360deg); }
-            }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
+            @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+            </style>
+            <div class="loading-overlay">
+                <div class="spinner"></div>
+                <h2>Aguarde, processando grande volume de dados...</h2>
+                <p>Isso só deve ocorrer na primeira vez.</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
-    # Agora processa os dados normalmente
+    # ----------------------------------------------------
+    # AGORA processa os dados (load_data é cacheada)
+    # ----------------------------------------------------
     data, numeric_cols, categorical_cols = load_data(uploaded_file)
+
+    # Remove o flag de loading após o carregamento pesado
+    if "is_loading" in st.session_state:
+        del st.session_state["is_loading"]
 
     # ====================================================
     # 🔄 Limpa histórico e cache de sessão ao carregar novo arquivo
     # ====================================================
-    for key in [
-        "chat_history",
-        "dataset_summary",
-        "memoria_carregada",
-    ]:
+    for key in ["chat_history", "dataset_summary", "memoria_carregada"]:
         if key in st.session_state:
             del st.session_state[key]
-    # Isso limpa apenas o cache em tela — o banco (memória persistente) permanece intacto.
 
     st.success(
         f"✅ Arquivo carregado: {data.shape[0]} linhas, {data.shape[1]} colunas."
     )
 
-    def cache_clear_button():
-        """Botão para limpar cache, sessão e memória do app completamente."""
-        if st.button("🧹 Limpar Cache", key="clear_cache_button"):
-            try:
-                # 🔹 Limpa todos os caches do Streamlit
-                st.cache_data.clear()
-                st.cache_resource.clear()
-
-                # 🔹 Limpa variáveis da sessão (sem quebrar o app)
-                for key in list(st.session_state.keys()):
-                    del st.session_state[key]
-
-                # 🔹 Mostra mensagem de sucesso
-                st.success(
-                    "✅ Cache e sessão limpos com sucesso! Recarregue o arquivo CSV."
-                )
-
-                # 🔹 Força recarregamento da página
-                st.rerun()
-
-            except Exception as e:
-                st.error(f"⚠️ Erro ao limpar cache: {e}")
+    # ✅ CHAMADA CORRETA: Usa a função importada
+    cache_clear_button()
 
     # ====================================================
-    # Exibição das abas principais
+    # Exibição das abas principais - COM PERSISTÊNCIA E CALLBACK
     # ====================================================
-    tabs = st.tabs(
-        [
-            "📊 Distribuições",
-            "🔍 Correlações",
-            "📈 Tendências",
-            "📉 Variância",
-            "⚠️ Anomalias",
-            "🧩 Clusters",
-            "🤖 Chat IA",
-        ]
+    tab_labels = [
+        "📊 Distribuições",
+        "🔍 Correlações",
+        "📈 Tendências",
+        "📉 Variância",
+        "⚠️ Anomalias",
+        "🧩 Clusters",
+        "🤖 Chat IA",
+    ]
+
+    st.radio(
+        "Selecione uma aba:",
+        options=tab_labels,
+        index=st.session_state.get("active_tab_index", 0),
+        horizontal=True,
+        label_visibility="collapsed",
+        key="tab_selector",
+        # CHAVE DA CORREÇÃO: Chama o callback para salvar o estado antes do rerun
+        on_change=update_tab_index,
     )
 
-    with tabs[0]:
-        distributions.render(data, numeric_cols, categorical_cols)
-    with tabs[1]:
-        correlations.render(data, numeric_cols)
-    with tabs[2]:
-        trends.render(data, numeric_cols)
-    with tabs[3]:
-        variance.render(data, numeric_cols)
-    with tabs[4]:
-        anomalies.render(data, numeric_cols)
-    with tabs[5]:
-        clustering.render(data, numeric_cols)
+    # O active_tab_label não é mais necessário aqui, pois o estado é gerenciado pelo callback.
+    # Vamos usar st.session_state["active_tab_index"] para renderizar o conteúdo.
 
-    # ====================================================
-    # 💬 Aba do Chat IA (com configuração e memória)
-    # ====================================================
-    with tabs[6]:
+    # Renderização do conteúdo APENAS da aba ativa (agora usando o índice da sessão)
+    active_index = st.session_state.get("active_tab_index", 0)
+
+    if tab_labels[active_index] == "📊 Distribuições":
+        distributions.render(data, numeric_cols, categorical_cols)
+    elif tab_labels[active_index] == "🔍 Correlações":
+        correlations.render(data, numeric_cols)
+    elif tab_labels[active_index] == "📈 Tendências":
+        trends.render(data, numeric_cols)
+    elif tab_labels[active_index] == "📉 Variância":
+        variance.render(data, numeric_cols)
+    elif tab_labels[active_index] == "⚠️ Anomalias":
+        anomalies.render(data, numeric_cols)
+    elif tab_labels[active_index] == "🧩 Clusters":
+        clustering.render(data, numeric_cols)
+    elif tab_labels[active_index] == "🤖 Chat IA":
+        # ====================================================
+        # 💬 Conteúdo da Aba Chat IA
+        # ====================================================
         st.header("🧠 Chat Inteligente com Memória Persistente")
 
         # ---- Seção de configuração da IA ----
@@ -254,9 +273,10 @@ if uploaded_file:
         )
 
     # ====================================================
-    # Agora sim remove overlay — tudo foi carregado
+    # Agora sim remove overlay
     # ====================================================
-    loading_container.empty()
+    if "loading_container" in locals() and st.session_state.get("file_hash"):
+        loading_container.empty()
 
 else:
     st.info("👆 Envie um arquivo CSV para começar a análise.")
