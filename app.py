@@ -159,12 +159,16 @@ if uploaded_file:
             st.session_state["dataset_summary"] = None
             st.success("✅ Memória limpa com sucesso!")
 
-        # Configuração da API
+        # ====================================================
+        # 🔑 Configuração da API
+        # ====================================================
         st.subheader("🔑 Configuração da API da IA")
         if "provider" not in st.session_state:
             st.session_state["provider"] = "OpenAI"
         if "user_api_key" not in st.session_state:
             st.session_state["user_api_key"] = ""
+        if "groq_model" not in st.session_state:
+            st.session_state["groq_model"] = "llama-3.2-8b-text-preview"
 
         provider = st.selectbox(
             "Selecione o provedor de IA:",
@@ -172,6 +176,7 @@ if uploaded_file:
             index=["OpenAI", "Groq", "Gemini"].index(st.session_state["provider"]),
             key="provider_selector",
         )
+
         api_key = st.text_input(
             f"Insira sua API Key ({provider})",
             type="password",
@@ -179,9 +184,25 @@ if uploaded_file:
             key="user_api_key_input",
         )
 
+        # Exibe opção de modelo apenas se for Groq
+        if provider == "Groq":
+            model_name = st.selectbox(
+                "Selecione o modelo Groq:",
+                ["llama-3.2-8b-text-preview", "llama-3.2-70b-text-preview"],
+                index=["llama-3.2-8b-text-preview", "llama-3.2-70b-text-preview"].index(
+                    st.session_state["groq_model"]
+                ),
+            )
+            st.session_state["groq_model"] = model_name
+        else:
+            model_name = None
+
+        # Botão para salvar configuração
         if st.button("💾 Salvar Configuração de API"):
             st.session_state["provider"] = provider
             st.session_state["user_api_key"] = api_key
+            if provider == "Groq":
+                st.session_state["groq_model"] = model_name
             st.success(f"✅ Configuração salva: {provider}")
 
         # Renderiza o chat

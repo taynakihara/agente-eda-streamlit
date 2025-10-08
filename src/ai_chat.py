@@ -42,15 +42,16 @@ def summarize_dataset(df: pd.DataFrame) -> str:
 
 
 # ==========================================
-# 🔹 Memória de Chat
+# 🧠 Memória Persistente
 # ==========================================
 def initialize_memory():
-    """Inicializa a memória local e carrega as últimas conversas persistidas sem duplicar."""
+    """Inicializa o histórico e carrega mensagens salvas (sem prints automáticos)."""
     if "chat_history" not in st.session_state:
         st.session_state["chat_history"] = []
     if "dataset_summary" not in st.session_state:
         st.session_state["dataset_summary"] = None
 
+    # Evita carregar múltiplas vezes
     if st.session_state.get("memoria_carregada"):
         return
 
@@ -66,34 +67,34 @@ def initialize_memory():
                     }
                 )
         st.session_state["memoria_carregada"] = True
-
     except Exception as e:
         st.warning(f"⚠️ Não foi possível carregar memória persistente: {e}")
 
 
 def add_to_history(role: str, content: str):
+    """Adiciona uma mensagem ao histórico local."""
     st.session_state["chat_history"].append({"role": role, "content": content})
 
 
 def show_history():
+    """Exibe o histórico do chat."""
     for message in st.session_state["chat_history"]:
         st.chat_message(message["role"]).markdown(message["content"])
 
 
 # ==========================================
-# 🔹 Função de resposta do agente
-# ==========================================
-# ==========================================
-# 🔹 Função de resposta do agente
+# 🤖 Função de geração de resposta
 # ==========================================
 def generate_response(
-    prompt: str, dataset_summary: str, api_key: str, provider: str
+    prompt: str,
+    dataset_summary: str,
+    api_key: str,
+    provider: str,
+    model_name: str = None,
 ) -> str:
     """Gera resposta real ou simulada de acordo com o provider."""
     if not api_key or not provider:
-        return (
-            f"💬 [Modo offline] Você perguntou: '{prompt}'\n\n{dataset_summary[:500]}"
-        )
+        return "⚠️ Configure o provedor e insira a chave da API antes de usar o chat."
 
     # --- OPENAI ---
     if provider == "OpenAI" and openai:
@@ -123,43 +124,79 @@ def generate_response(
             return "⚠️ Chave da API Groq inválida. Ela deve começar com 'gsk_'."
 
         try:
+            # Define o modelo base, com fallback automático
+            model_to_use = (
+                model_name
+                or st.session_state.get("groq_model")
+                or "llama-3.2-8b-text-preview"
+            )
+
             client = openai.OpenAI(
                 api_key=api_key, base_url="https://api.groq.com/openai/v1"
             )
-            response = client.chat.completions.create(
-                model="llama-3.2-8b-text-preview",
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "Você é um analista de dados especializado em EDA.",
-                    },
-                    {
-                        "role": "user",
-                        "content": f"{prompt}\n\n{dataset_summary[:1000]}",
-                    },
-                ],
-            )
-            return response.choices[0].message.content.strip()
+
+            try:
+                # Tentativa principal
+                response = client.chat.completions.create(
+                    model=model_to_use,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": "Você é um analista de dados especializado em EDA.",
+                        },
+                        {
+                            "role": "user",
+                            "content": f"{prompt}\n\n{dataset_summary[:1000]}",
+                        },
+                    ],
+                    temperature=0.3,
+                )
+                return response.choices[0].message.content.strip()
+
+            except Exception as inner_error:
+                # Fallback automático para outro modelo disponível
+                fallback_model = "llama-3.2-70b-text-preview"
+                if model_to_use != fallback_model:
+                    response = client.chat.completions.create(
+                        model=fallback_model,
+                        messages=[
+                            {
+                                "role": "system",
+                                "content": "Você é um analista de dados especializado em EDA.",
+                            },
+                            {
+                                "role": "user",
+                                "content": f"{prompt}\n\n{dataset_summary[:1000]}",
+                            },
+                        ],
+                        temperature=0.3,
+                    )
+                    return (
+                        f"⚠️ Modelo principal '{model_to_use}' falhou. Fallback automático para '{fallback_model}'.\n\n"
+                        + response.choices[0].message.content.strip()
+                    )
+                else:
+                    raise inner_error
+
         except Exception as e:
-            return f"⚠️ Erro ao conectar à API Groq: {e}"
+            return f"⚠️ Erro ao conectar à API Groq: {e}\n\n🔗 Verifique modelos ativos em: https://console.groq.com/docs/deprecations"
 
     # --- GEMINI ---
     elif provider == "Gemini" and genai:
         try:
             genai.configure(api_key=api_key)
-            model = genai.GenerativeModel("gemini-pro")
+            # ✅ Modelos atualizados 2025
+            model = genai.GenerativeModel("gemini-1.5-flash")
             response = model.generate_content(
                 f"Usuário: {prompt}\n\nContexto:\n{dataset_summary[:1000]}"
             )
             return response.text
         except Exception as e:
-            return f"⚠️ Erro ao conectar à API Gemini: {e}"
-
-    return "⚠️ Nenhum provedor válido configurado ou biblioteca ausente."
+            return f"⚠️ Erro ao conectar à API Gemini: {e}\n\n🔗 Verifique modelos ativos em: https://ai.google.dev/models"
 
 
 # ==========================================
-# 🔹 Função principal do Chat
+# 💬 Interface principal do Chat
 # ==========================================
 def render_chat(
     data,
@@ -169,15 +206,19 @@ def render_chat(
     api_key=None,
     provider=None,
 ):
+    """Renderiza o chat interativo com memória persistente."""
     st.markdown("### 💬 Chat Interativo com Memória Persistente")
-    initialize_memory()
-    show_history()
 
-    # Impede execução automática se o provider ou API Key não estiverem configurados
+    initialize_memory()
+
+    # 🔒 Bloqueia chat se API ou provedor não configurados
     if not provider or not api_key:
-        st.info("⚠️ Por favor, configure o provedor e a API Key para usar o chat.")
+        st.warning("⚠️ Por favor, configure o provedor e a API Key para usar o chat.")
         return
 
+    show_history()
+
+    # Entrada do usuário
     user_input = st.chat_input("Digite sua pergunta sobre os dados...")
     if not user_input:
         return
@@ -189,16 +230,23 @@ def render_chat(
         placeholder.info("🤖 Processando sua pergunta...")
 
         try:
-            response = generate_response(user_input, dataset_summary, api_key, provider)
+            groq_model = st.session_state.get("groq_model", "llama-3.2-8b-text-preview")
+            resposta = generate_response(
+                user_input,
+                dataset_summary,
+                api_key,
+                provider,
+                model_name=groq_model,
+            )
         except Exception as e:
-            response = f"⚠️ Erro ao processar sua solicitação: {e}"
+            resposta = f"⚠️ Erro ao processar sua solicitação: {e}"
         finally:
             placeholder.empty()
 
-        st.markdown(response)
-        add_to_history("assistant", response)
+        st.markdown(resposta)
+        add_to_history("assistant", resposta)
 
         try:
-            salvar_memoria(user_input, response, tipo_analise="chat")
+            salvar_memoria(user_input, resposta, tipo_analise="chat")
         except Exception as e:
             st.warning(f"⚠️ Não foi possível salvar na memória persistente: {e}")
