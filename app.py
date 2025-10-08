@@ -128,6 +128,18 @@ if uploaded_file:
     # Agora processa os dados normalmente
     data, numeric_cols, categorical_cols = load_data(uploaded_file)
 
+    # ====================================================
+    # 🔄 Limpa histórico e cache de sessão ao carregar novo arquivo
+    # ====================================================
+    for key in [
+        "chat_history",
+        "dataset_summary",
+        "memoria_carregada",
+    ]:
+        if key in st.session_state:
+            del st.session_state[key]
+    # Isso limpa apenas o cache em tela — o banco (memória persistente) permanece intacto.
+
     st.success(
         f"✅ Arquivo carregado: {data.shape[0]} linhas, {data.shape[1]} colunas."
     )
