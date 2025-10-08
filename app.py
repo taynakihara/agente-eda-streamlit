@@ -1,4 +1,5 @@
 import streamlit as st
+import warnings
 from src.ai_chat import render_chat, summarize_dataset
 from src.data_loader import load_data
 from src.analysis import (
@@ -12,14 +13,16 @@ from src.analysis import (
 from utils.cache_utils import cache_clear_button
 from dotenv import load_dotenv
 import pandas as pd
+import streamlit as st  # <-- Adicionar st. importado
 
-# NO TOPO (Pode ser logo abaixo do seu bloco de importações)
+# Este bloco impede que o warning "st.rerun() in callback is a no-op" apareça.
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+warnings.filterwarnings("ignore", category=UserWarning)
 
 
 # Funções de Callback para persistência do estado
 def update_tab_index():
     """Atualiza o índice da aba ativa usando a chave do widget (tab_selector)"""
-    # A chave "tab_selector" retorna o LABEL da aba, não o índice.
     active_label = st.session_state["tab_selector"]
     tab_labels = [
         "📊 Distribuições",
@@ -33,19 +36,50 @@ def update_tab_index():
     st.session_state["active_tab_index"] = tab_labels.index(active_label)
 
 
-# ... (O restante do código do app.py) ...
-
 # ====================================================
 # Define o estado inicial da aba
 # ====================================================
 if "active_tab_index" not in st.session_state:
     st.session_state["active_tab_index"] = 0  # Inicia na Distribuições
 
+# ====================================================
+# LÓGICA DE FEEDBACK APÓS LIMPEZA DO CACHE (CORRIGIDA)
+# ====================================================
+# ESTE BLOCO ESTÁ NO NÍVEL CORRETO (APÓS DEFINIÇÃO DA ABA, MAS ANTES DA CONFIG)
+if (
+    "cache_cleared_success" in st.session_state
+    and st.session_state["cache_cleared_success"]
+):
+    # Exibe a mensagem de sucesso
+    st.success("✅ Cache e sessão limpos com sucesso! O aplicativo foi resetado.")
+    # Reseta a flag para não aparecer novamente
+    del st.session_state["cache_cleared_success"]
+    # O app irá recarregar e o if uploaded_file: será False.
+
+    # A ÚLTIMA PEÇA DO QUEBRA-CABEÇA: ZERAR O UPLOAD
+    # Remove a entrada do arquivo carregado do uploader (se existir no state)
+    if "uploaded_file" in st.session_state:
+        del st.session_state["uploaded_file"]
+
+
 # ===============================
 # 🔧 Configurações iniciais
 # ===============================
 load_dotenv()
 st.set_page_config(page_title="🤖 Análise com IA", layout="wide")
+
+# Isso desativa o toast de aviso "Calling st.rerun() within a callback is a no-op."
+st.markdown(
+    """
+    <style>
+    /* Esconde o elemento 'toast' (onde o aviso aparece) */
+    .stApp > div:nth-child(1) > div:nth-child(1) > header > div:nth-child(1) > div:nth-child(2) {
+        visibility: hidden;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 # ===============================
 # 🎨 Estilos globais (layout centralizado e menor)
@@ -106,7 +140,13 @@ st.markdown(
 # 📤 Upload do CSV
 # ===============================
 st.title("📊 Análise de Dados com IA")
-uploaded_file = st.file_uploader("📂 Envie seu arquivo CSV", type=["csv"])
+# Garante que a chave exista para evitar erro
+if "uploader_key" not in st.session_state:
+    st.session_state["uploader_key"] = "initial_uploader"
+
+uploaded_file = st.file_uploader(
+    "📂 Envie seu arquivo CSV", type=["csv"], key=st.session_state["uploader_key"]
+)
 
 if uploaded_file:
     # ====================================================
@@ -142,8 +182,7 @@ if uploaded_file:
             </style>
             <div class="loading-overlay">
                 <div class="spinner"></div>
-                <h2>Aguarde, processando grande volume de dados...</h2>
-                <p>Isso só deve ocorrer na primeira vez.</p>
+                <h2>Aguarde, processando...</h2>
             </div>
             """,
             unsafe_allow_html=True,
@@ -169,7 +208,7 @@ if uploaded_file:
         f"✅ Arquivo carregado: {data.shape[0]} linhas, {data.shape[1]} colunas."
     )
 
-    # ✅ CHAMADA CORRETA: Usa a função importada
+    # CHAMADA CORRETA: Usa a função importada
     cache_clear_button()
 
     # ====================================================
