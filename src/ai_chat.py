@@ -81,48 +81,51 @@ def show_history():
 # ==========================================
 # 🤖 Geração de resposta
 # ==========================================
-def generate_response(prompt, dataset_summary, api_key, provider, model_name=None):
+def generate_response(
+    prompt, chat_history, dataset_summary, api_key, provider, model_name=None
+):
     if not api_key or not provider:
         return "⚠️ Configure o provedor e insira a chave da API antes de usar o chat."
+
+    # Novo: Prepara o histórico para a API
+    system_prompt = "Você é um analista de dados útil e explicativo. Seu conhecimento é limitado ao contexto do dataset fornecido."
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {
+            "role": "user",
+            "content": f"Contexto do Dataset: {dataset_summary[:1000]}",
+        },  # Adiciona o contexto como a primeira mensagem do usuário/sistema
+    ]
+    # 2. Histórico da conversa (limpando o timestamp da memória)
+    for msg in chat_history[-6:]:  # Limita o histórico para as últimas 6 mensagens
+        content = msg["content"].split("\n\n")[
+            -1
+        ]  # Tenta pegar apenas o conteúdo após o timestamp
+        messages.append({"role": msg["role"], "content": content})
+
+    # 3. Adiciona o prompt atual do usuário como a última mensagem
+    messages.append({"role": "user", "content": prompt})
 
     try:
         if provider == "OpenAI" and openai:
             client = openai.OpenAI(api_key=api_key)
             response = client.chat.completions.create(
                 model="gpt-4o-mini",
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "Você é um analista de dados útil e explicativo.",
-                    },
-                    {
-                        "role": "user",
-                        "content": f"{prompt}\n\n{dataset_summary[:1000]}",
-                    },
-                ],
+                # USAR A NOVA LISTA DE MENSAGENS
+                messages=messages,
                 temperature=0.3,
             )
             return response.choices[0].message.content.strip()
 
         elif provider == "Groq" and openai:
-            if not api_key.startswith("gsk_"):
-                return "⚠️ Chave da API Groq inválida. Ela deve começar com 'gsk_'."
             client = openai.OpenAI(
                 api_key=api_key, base_url="https://api.groq.com/openai/v1"
             )
             model_to_use = model_name or "llama-3.2-8b-text-preview"
             response = client.chat.completions.create(
                 model=model_to_use,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "Você é um analista de dados especializado em EDA.",
-                    },
-                    {
-                        "role": "user",
-                        "content": f"{prompt}\n\n{dataset_summary[:1000]}",
-                    },
-                ],
+                # USAR A NOVA LISTA DE MENSAGENS
+                messages=messages,
                 temperature=0.3,
             )
             return response.choices[0].message.content.strip()
@@ -130,9 +133,13 @@ def generate_response(prompt, dataset_summary, api_key, provider, model_name=Non
         elif provider == "Gemini" and genai:
             genai.configure(api_key=api_key)
             model = genai.GenerativeModel("gemini-1.5-flash")
-            response = model.generate_content(
-                f"Usuário: {prompt}\n\nContexto:\n{dataset_summary[:1000]}"
+            # PRECISA USAR O CHAT SERVICE DO GEMINI PARA MANTER A MEMÓRIA
+            # Vamos simular a passagem de contexto no prompt por simplicidade AGORA, mas
+            # o ideal seria usar o client.chats().send_message() para Gemini.
+            context_prompt = "\n".join(
+                [f"{m['role']}: {m['content']}" for m in messages]
             )
+            response = model.generate_content(context_prompt)
             return response.text
 
         else:
@@ -180,8 +187,10 @@ def render_chat(
     with st.chat_message("assistant"):
         with st.spinner("🤖 Processando sua pergunta com IA..."):
             try:
+                # ❗ APENAS ESTE BLOCO É ALTERADO PARA INCLUIR O HISTÓRICO
                 resposta = generate_response_async(
                     user_input,
+                    st.session_state["chat_history"],  # <-- NOVO: Histórico do chat
                     dataset_summary,
                     api_key,
                     provider,
@@ -192,8 +201,8 @@ def render_chat(
             except Exception as e:
                 resposta = f"⚠️ Erro: {e}"
 
-        st.markdown(resposta)
-        add_to_history("assistant", resposta)
+            st.markdown(resposta)
+            add_to_history("assistant", resposta)
 
         try:
             salvar_memoria(user_input, resposta, tipo_analise="chat")

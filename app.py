@@ -193,6 +193,17 @@ if uploaded_file:
     # ----------------------------------------------------
     data, numeric_cols, categorical_cols = load_data(uploaded_file)
 
+    # ====================================================
+    # GERAÇÃO DO SUMÁRIO PARA O CHAT IA
+    # ====================================================
+    if "dataset_summary" not in st.session_state:
+        with st.spinner("🧠 Gerando sumário do dataset para o Chat IA..."):
+            # ❗ CONFIRME SE SEU ARQUIVO DE CHAT ESTÁ AQUI
+            from src.ai_chat import summarize_dataset
+
+            # O sumário deve ser gerado UMA ÚNICA VEZ
+            st.session_state["dataset_summary"] = summarize_dataset(data)
+
     # Remove o flag de loading após o carregamento pesado
     if "is_loading" in st.session_state:
         del st.session_state["is_loading"]
