@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import time
+from utils.memoria_db import salvar_memoria, carregar_memoria
 
 # Tentamos importar as libs de LLM, mas sem quebrar se não estiverem instaladas
 try:
@@ -45,10 +46,25 @@ def summarize_dataset(df: pd.DataFrame) -> str:
 # 🔹 Memória de Chat
 # ==========================================
 def initialize_memory():
+    """Inicializa a memória local e carrega as últimas conversas persistidas."""
     if "chat_history" not in st.session_state:
         st.session_state["chat_history"] = []
     if "dataset_summary" not in st.session_state:
         st.session_state["dataset_summary"] = None
+
+    # Carregar histórico persistente
+    try:
+        memoria_salva = carregar_memoria(limit=5)
+        if memoria_salva:
+            for item in memoria_salva[::-1]:  # ordem cronológica
+                st.session_state["chat_history"].append(
+                    {
+                        "role": "assistant",
+                        "content": f"🕒 {item['timestamp']}\n**{item['pergunta']}**\n\n{item['resposta']}",
+                    }
+                )
+    except Exception as e:
+        st.warning(f"⚠️ Não foi possível carregar memória persistente: {e}")
 
 
 def add_to_history(role: str, content: str):
@@ -56,6 +72,7 @@ def add_to_history(role: str, content: str):
 
 
 def show_history():
+    """Exibe o histórico do chat."""
     for message in st.session_state["chat_history"]:
         st.chat_message(message["role"]).markdown(message["content"])
 
@@ -101,7 +118,7 @@ def generate_response(
                 api_key=api_key, base_url="https://api.groq.com/openai/v1"
             )
             response = client.chat.completions.create(
-                model="llama-3.1-70b-versatile",  # modelo atualizado
+                model="llama-3.1-70b-versatile",
                 messages=[
                     {
                         "role": "system",
@@ -143,24 +160,21 @@ def render_chat(
     api_key=None,
     provider=None,
 ):
-    st.markdown("### 💬 Chat Interativo com Memória Contextual")
+    st.markdown("### 💬 Chat Interativo com Memória Persistente")
     initialize_memory()
     show_history()
 
-    # Captura pergunta sem recarregar a tela
+    # Entrada do usuário
     user_input = st.chat_input("Digite sua pergunta sobre os dados...")
     if not user_input:
         return
 
-    # Evita reprocessamentos pesados
     add_to_history("user", user_input)
 
-    # Feedback visual leve
     with st.chat_message("assistant"):
         placeholder = st.empty()
         placeholder.info("🤖 Processando sua pergunta...")
 
-        # Tempo máximo de 20s (timeout seguro)
         try:
             response = generate_response(user_input, dataset_summary, api_key, provider)
         except Exception as e:
@@ -170,3 +184,9 @@ def render_chat(
 
         st.markdown(response)
         add_to_history("assistant", response)
+
+        # 💾 Salvar pergunta e resposta na memória persistente Supabase
+        try:
+            salvar_memoria(user_input, response, tipo_analise="chat")
+        except Exception as e:
+            st.warning(f"⚠️ Não foi possível salvar na memória persistente: {e}")

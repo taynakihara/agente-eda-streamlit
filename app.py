@@ -5,6 +5,10 @@ from src.analysis import variance
 from src.ai_chat import render_chat
 from utils.cache_utils import cache_clear_button
 import time
+from dotenv import load_dotenv
+
+load_dotenv()
+
 
 # -----------------------------
 # Configurações Gerais
