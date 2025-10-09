@@ -80,10 +80,11 @@ def generate_response(
     ]
     # 2. Histórico da conversa (limpando o timestamp da memória)
     for msg in chat_history[-6:]:  # Limita o histórico para as últimas 6 mensagens
-        content = msg["content"].split("\n\n")[
-            -1
-        ]  # Tenta pegar apenas o conteúdo após o timestamp
-        messages.append({"role": msg["role"], "content": content})
+        content = msg["content"]
+        if content.startswith("🕒"):
+            content = "\n".join(content.split("\n")[2:])
+        # Tenta pegar apenas o conteúdo após o timestamp
+        messages.append({"role": msg["role"], "content": content.strip()})
 
     # 3. Adiciona o prompt atual do usuário como a última mensagem
     messages.append({"role": "user", "content": prompt})
@@ -103,7 +104,7 @@ def generate_response(
             client = openai.OpenAI(
                 api_key=api_key, base_url="https://api.groq.com/openai/v1"
             )
-            model_to_use = model_name or "llama-3.2-8b-text-preview"
+            model_to_use = model_name or "llama3-8b-8192"
             response = client.chat.completions.create(
                 model=model_to_use,
                 # USAR A NOVA LISTA DE MENSAGENS
@@ -114,7 +115,7 @@ def generate_response(
 
         elif provider == "Gemini" and genai:
             genai.configure(api_key=api_key)
-            model = genai.GenerativeModel("gemini-1.5-flash")
+            model = genai.GenerativeModel("gemini-2.5-flash")
             # PRECISA USAR O CHAT SERVICE DO GEMINI PARA MANTER A MEMÓRIA
             # Vamos simular a passagem de contexto no prompt por simplicidade AGORA, mas
             # o ideal seria usar o client.chats().send_message() para Gemini.
@@ -127,7 +128,15 @@ def generate_response(
         else:
             return "⚠️ Nenhum provedor válido configurado ou biblioteca ausente."
 
+    # Trata erros de cota e conexão de forma mais amigável
     except Exception as e:
+        erro_str = str(e)
+
+        if "insufficient_quota" in erro_str or "429" in erro_str:
+            return "⚠️ Erro de cota/limite de uso excedido. Verifique seu plano na API do provedor."
+        elif "API key is not valid" in erro_str or "401" in erro_str:
+            return "⚠️ Erro de autenticação. A API Key inserida é inválida."
+
         return f"⚠️ Erro ao conectar à API: {e}"
 
 
