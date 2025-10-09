@@ -154,18 +154,49 @@ uploaded_file = st.file_uploader(
     "📂 Envie seu arquivo CSV", type=["csv"], key=st.session_state["uploader_key"]
 )
 
+
 if uploaded_file:
-    # ====================================================
-    # Inicializa o container de loading ANTES da lógica condicional
-    # para garantir que esteja no escopo.
-    # ====================================================
+    data, numeric_cols, categorical_cols = load_data(uploaded_file)
+
     loading_container = st.empty()
 
     # ====================================================
-    # 🌀 LOADING VISUAL CONDICIONAL E BLOQUEANTE
+    # LOADING VISUAL CONDICIONAL E BLOQUEANTE
     # ====================================================
-    if not st.session_state.get("file_hash") or st.session_state.get("is_loading"):
-        st.session_state["is_loading"] = True
+    if (
+        "file_hash" not in st.session_state
+        or uploaded_file.file_id != st.session_state["file_hash"]
+    ):
+        st.session_state["file_hash"] = uploaded_file.file_id
+        if (
+            "dataset_summary" not in st.session_state
+            or st.session_state["dataset_summary"] is None
+        ):
+            with st.spinner("🧠 Gerando sumário do dataset para o Chat IA..."):
+                from src.ai_chat import summarize_dataset
+
+                data_summary_result = summarize_dataset(data)
+
+                if data_summary_result in [
+                    "API_KEY_NAO_CONFIGURADA",
+                    "DATA_NAO_DISPONIVEL",
+                ]:
+                    st.session_state["dataset_summary"] = None
+
+                elif data_summary_result == "FALHA_GERACAO_SUMARIO":
+                    st.error(
+                        "⚠️ Falha ao gerar o sumário do dataset. Verifique sua API Key ou limites de uso."
+                    )
+                    st.session_state["dataset_summary"] = None
+
+                else:
+                    st.session_state["dataset_summary"] = data_summary_result
+                    st.success(
+                        "Sumário do dataset gerado com sucesso."
+                    )  # Confirmação extra
+
+        if "is_loading" in st.session_state:
+            del st.session_state["is_loading"]
 
         # Renderiza o overlay de loading
         loading_container.markdown(
@@ -194,22 +225,9 @@ if uploaded_file:
             unsafe_allow_html=True,
         )
 
-    # ----------------------------------------------------
-    # AGORA processa os dados (load_data é cacheada)
-    # ----------------------------------------------------
-    data, numeric_cols, categorical_cols = load_data(uploaded_file)
-
     # ====================================================
     # GERAÇÃO DO SUMÁRIO PARA O CHAT IA
     # ====================================================
-    if "dataset_summary" not in st.session_state:
-        with st.spinner("🧠 Gerando sumário do dataset para o Chat IA..."):
-            # ❗ CONFIRME SE SEU ARQUIVO DE CHAT ESTÁ AQUI
-            from src.ai_chat import summarize_dataset
-
-            # O sumário deve ser gerado UMA ÚNICA VEZ
-            st.session_state["dataset_summary"] = summarize_dataset(data)
-
     # Remove o flag de loading após o carregamento pesado
     if "is_loading" in st.session_state:
         del st.session_state["is_loading"]
@@ -217,7 +235,7 @@ if uploaded_file:
     # ====================================================
     # 🔄 Limpa histórico e cache de sessão ao carregar novo arquivo
     # ====================================================
-    for key in ["chat_history", "dataset_summary", "memoria_carregada"]:
+    for key in ["chat_history", "memoria_carregada"]:
         if key in st.session_state:
             del st.session_state[key]
 
@@ -320,6 +338,11 @@ if uploaded_file:
                 st.session_state["provider"] = provider
                 st.session_state["user_api_key"] = api_key
                 st.session_state["chat_history"] = []
+
+                # Força o bloco de carregamento do app a rodar a summarize_dataset com a nova chave.
+                if "dataset_summary" in st.session_state:
+                    del st.session_state["dataset_summary"]
+                st.cache_data.clear()
                 st.success("✅ Configuração salva e chat resetado!")
 
         with col3:  # Coluna para o novo botão de limpeza

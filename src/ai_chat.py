@@ -20,26 +20,49 @@ except ImportError:
 # 🔹 Resumo de dataset (com cache)
 # ==========================================
 @st.cache_data(show_spinner=False)
-def summarize_dataset(df: pd.DataFrame) -> str:
-    if df is None or df.empty:
-        return "Nenhum dado foi carregado."
+def summarize_dataset(data: pd.DataFrame):
 
-    resumo = [f"O dataset possui {df.shape[0]} linhas e {df.shape[1]} colunas."]
-    tipos = df.dtypes.value_counts().to_dict()
-    resumo.append(
-        "Tipos de dados → " + ", ".join([f"{k}: {v}" for k, v in tipos.items()])
-    )
+    # Verificação de Data Nula no início
+    # Esta é a checagem mais segura para evitar o erro do .head()
+    if data is None or not isinstance(data, pd.DataFrame) or data.empty:
+        # Retorna uma string específica para o app.py tratar
+        return "DATA_NAO_DISPONIVEL"
 
-    numeric_cols = df.select_dtypes(include=np.number).columns.tolist()
-    if numeric_cols:
-        stats = df[numeric_cols].describe().T[["mean", "std", "min", "max"]]
-        resumo.append("Estatísticas resumidas das variáveis numéricas:")
-        for col, row in stats.iterrows():
-            resumo.append(
-                f"• {col}: média={row['mean']:.2f}, desvio={row['std']:.2f}, "
-                f"min={row['min']:.2f}, max={row['max']:.2f}"
-            )
-    return "\n".join(resumo)
+    api_key = st.session_state.get("user_api_key")
+    provider = st.session_state.get("provider")
+
+    if not api_key or not provider:
+        return "API_KEY_NAO_CONFIGURADA"
+
+    # Todo o bloco de processamento deve estar no try
+    try:
+        # Prepara a descrição do dataframe (que agora é seguro chamar .head())
+        data_description = data.head().to_markdown(index=False)
+
+        resumo = [f"O dataset possui {data.shape[0]} linhas e {data.shape[1]} colunas."]
+        tipos = data.dtypes.value_counts().to_dict()
+        resumo.append(
+            "Tipos de dados → " + ", ".join([f"{k}: {v}" for k, v in tipos.items()])
+        )
+
+        numeric_cols = data.select_dtypes(include=np.number).columns.tolist()
+        if numeric_cols:
+            stats = data[numeric_cols].describe().T[["mean", "std", "min", "max"]]
+            resumo.append("Estatísticas resumidas das variáveis numéricas:")
+            for col, row in stats.iterrows():
+                resumo.append(
+                    f"• {col}: média={row['mean']:.2f}, desvio={row['std']:.2f}, "
+                    f"min={row['min']:.2f}, max={row['max']:.2f}"
+                )
+
+        # O retorno de sucesso (summary_text) deve ser aqui.
+        summary_text = "\n".join(resumo)
+        return summary_text
+
+    except Exception as e:
+        print(f"Erro na geração do sumário: {e}")
+        # Se falhar por qualquer outro motivo, retorna o flag de falha
+        return "FALHA_GERACAO_SUMARIO"
 
 
 # ==========================================
@@ -69,7 +92,10 @@ def generate_response(
     if not api_key or not provider:
         return "⚠️ Configure o provedor e insira a chave da API antes de usar o chat."
 
-    # Novo: Prepara o histórico para a API
+    # Trata o dataset_summary se for None (o mais provável)
+    if dataset_summary is None:
+        dataset_summary = "Nenhuma informação de resumo do dataset disponível."
+    # Prepara o histórico para a API
     system_prompt = "Você é um analista de dados útil e explicativo. Seu conhecimento é limitado ao contexto do dataset fornecido."
     messages = [
         {"role": "system", "content": system_prompt},
@@ -156,7 +182,7 @@ def render_chat(
     data,
     numeric_cols,
     categorical_cols,
-    dataset_summary=None,
+    dataset_summary,
     api_key=None,
     provider=None,
 ):
@@ -166,6 +192,19 @@ def render_chat(
     if not provider or not api_key:
         st.warning("⚠️ Configure o provedor e a API Key para usar o chat.")
         return
+
+    # Verifica se o sumário do dataset foi gerado.
+    if (
+        dataset_summary is None
+        or dataset_summary == "Nenhuma informação de resumo do dataset disponível."
+        or dataset_summary == "API_KEY_NAO_CONFIGURADA"
+        or dataset_summary == "DATA_NAO_DISPONIVEL"
+        or dataset_summary == "FALHA_GERACAO_SUMARIO"
+    ):
+        st.info(
+            "Aguarde. O sumário do dataset ainda está sendo gerado ou não está disponível."
+        )
+        return  # Impede a continuação do restante do código
 
     show_history()
     user_input = st.chat_input("Digite sua pergunta sobre os dados...")
