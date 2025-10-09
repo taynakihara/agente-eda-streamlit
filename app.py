@@ -36,6 +36,13 @@ def update_tab_index():
     st.session_state["active_tab_index"] = tab_labels.index(active_label)
 
 
+# Função de Callback para Limpar Chat
+def clear_chat_history_callback():
+    """Limpa o histórico de chat da sessão (mantém os dados carregados)."""
+    if "chat_history" in st.session_state:
+        st.session_state["chat_history"] = []
+
+
 # ====================================================
 # Define o estado inicial da aba
 # ====================================================
@@ -43,9 +50,8 @@ if "active_tab_index" not in st.session_state:
     st.session_state["active_tab_index"] = 0  # Inicia na Distribuições
 
 # ====================================================
-# LÓGICA DE FEEDBACK APÓS LIMPEZA DO CACHE (CORRIGIDA)
+# LÓGICA DE FEEDBACK APÓS LIMPEZA DO CACHE
 # ====================================================
-# ESTE BLOCO ESTÁ NO NÍVEL CORRETO (APÓS DEFINIÇÃO DA ABA, MAS ANTES DA CONFIG)
 if (
     "cache_cleared_success" in st.session_state
     and st.session_state["cache_cleared_success"]
@@ -305,10 +311,23 @@ if uploaded_file:
         # ====================================================
         # ✅ SALVAR API KEY — sem redirecionar, sem recarregar
         # ====================================================
-        if st.button("💾 Salvar Configuração de API"):
-            st.session_state["provider"] = provider
-            st.session_state["user_api_key"] = api_key
-            st.success("✅ Configuração salva com sucesso!")
+        col1, col2, col3 = st.columns(
+            [2, 1, 1.5]
+        )  # Ajuste as colunas para melhor layout
+
+        with col1:
+            if st.button("💾 Salvar Configuração de API"):
+                st.session_state["provider"] = provider
+                st.session_state["user_api_key"] = api_key
+                st.session_state["chat_history"] = []
+                st.success("✅ Configuração salva e chat resetado!")
+
+        with col3:  # Coluna para o novo botão de limpeza
+            st.button(
+                "🗑️ Limpar Chat",
+                on_click=clear_chat_history_callback,
+                key="clean_chat_history",
+            )
 
         st.divider()
 

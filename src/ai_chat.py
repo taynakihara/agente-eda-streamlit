@@ -47,26 +47,8 @@ def summarize_dataset(df: pd.DataFrame) -> str:
 # ==========================================
 def initialize_memory():
     if "chat_history" not in st.session_state:
+        # Inicializa se for a primeira vez
         st.session_state["chat_history"] = []
-    if "dataset_summary" not in st.session_state:
-        st.session_state["dataset_summary"] = None
-
-    if st.session_state.get("memoria_carregada"):
-        return
-
-    try:
-        memoria_salva = carregar_memoria(limit=5)
-        if memoria_salva:
-            st.session_state["chat_history"] = [
-                {
-                    "role": "assistant",
-                    "content": f"🕒 {item['timestamp']}\n**{item['pergunta']}**\n\n{item['resposta']}",
-                }
-                for item in memoria_salva[::-1]
-            ]
-        st.session_state["memoria_carregada"] = True
-    except Exception as e:
-        st.warning(f"⚠️ Não foi possível carregar memória persistente: {e}")
 
 
 def add_to_history(role, content):
